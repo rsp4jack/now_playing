@@ -14,7 +14,7 @@
 # notes             : Follow this step for this script to work:
 #                   : Python:
 #                   :   1. Install python (v3.6 and 64 bits, this is important)
-#                   :   2. Install pywin32 (not with pip, but with installer)
+#                   :   2. Install pywin32
 #                   : OBS:
 #                   :   1. Create a GDI+ Text Source with the name of your choice
 #                   :   2. Go to Tools › Scripts
