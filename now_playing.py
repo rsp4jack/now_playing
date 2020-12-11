@@ -2,12 +2,15 @@
 # title             : now_playing.py
 # description       : Now Playing is an OBS script that will update a Text Source
 #                   : with the current song that Media Player are playing. Only for Windows OS
-# author            : Etuldan
+# author            : Etuldan(Orgin)
+#                   : Creepercdn(Fork)
 # date              : 2019 03 30
+# last update       : 2020 12 12
 # version           : 0.1
 # usage             : python now_playing.py
 # dependencies      : - Python 3.6 (https://www.python.org/)
 #                   :   - pywin32 (https://github.com/mhammond/pywin32/releases)
+#                   : - Windows Vista+
 # notes             : Follow this step for this script to work:
 #                   : Python:
 #                   :   1. Install python (v3.6 and 64 bits, this is important)
@@ -25,13 +28,17 @@
 # ==============================================================================
 
 import obspython as obs
-import os, time, datetime, codecs, win32gui, win32process, win32api, win32con
+import sys, site
+site.main()
+print(sys.path)
+import os, time, datetime, codecs, win32gui, win32process, win32api, win32con, ctypes, ctypes.wintypes
+
 
 working = True
 enabled = True
 check_frequency = 1000
 display_text = '%artist - %title'
-debug_mode = False
+debug_mode = True
 
 source_name = ''
 
@@ -40,8 +47,16 @@ vlc = True
 yt_firefox = True
 yt_chrome = True
 foobar2000 = True
+necloud = True
 
 
+def IsWindowVisibleOnScreen(hwnd):
+    def IsWindowCloaked(hwnd):
+        DWMWA_CLOAKED = 14
+        cloaked = ctypes.wintypes.DWORD()
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, ctypes.wintypes.DWORD(DWMWA_CLOAKED), ctypes.byref(cloaked), ctypes.sizeof(cloaked))  
+        return cloaked.value
+    return ctypes.windll.user32.IsWindowVisible(hwnd) and (not IsWindowCloaked(hwnd))
 
 def script_defaults(settings):
     global debug_mode
@@ -56,6 +71,7 @@ def script_defaults(settings):
     global yt_firefox
     global yt_chrome
     global foobar2000
+    global necloud
 
     obs.obs_data_set_default_bool(settings, "enabled", enabled)
     obs.obs_data_set_default_int(settings, "check_frequency", check_frequency)
@@ -66,6 +82,7 @@ def script_defaults(settings):
     obs.obs_data_set_default_bool(settings, "yt_firefox", yt_firefox)
     obs.obs_data_set_default_bool(settings, "yt_chrome", yt_chrome)
     obs.obs_data_set_default_bool(settings, "foobar2000", foobar2000)
+    obs.obs_data_set_default_bool(settings, "necloud", necloud)
 
 def script_description():
     global debug_mode
@@ -98,6 +115,7 @@ def script_properties():
     obs.obs_properties_add_bool(props, "yt_firefox", "Youtube for Firefox")
     obs.obs_properties_add_bool(props, "yt_chrome", "Youtube for Chrome")
     obs.obs_properties_add_bool(props, "foobar2000", "Foobar2000")
+    obs.obs_properties_add_bool(props, "necloud", "Netease Cloud Music")
     obs.obs_properties_add_text(props, "source_name", "Text source", obs.OBS_TEXT_DEFAULT )
     return props
 
@@ -126,6 +144,7 @@ def script_update(settings):
     global yt_firefox
     global yt_chrome
     global foobar2000
+    global necloud
 
     if obs.obs_data_get_bool(settings, "enabled") is True:
         if (not enabled):
@@ -149,6 +168,7 @@ def script_update(settings):
     yt_firefox = obs.obs_data_get_bool(settings, "yt_firefox")
     yt_chrome = obs.obs_data_get_bool(settings, "yt_chrome")
     foobar2000 = obs.obs_data_get_bool(settings, "foobar2000")
+    necloud = obs.obs_data_get_bool(settings, "necloud")
 
 def update_song(artist = "", song = ""):
     global debug_mode
@@ -176,9 +196,12 @@ def get_song_info():
         global yt_firefox
         global yt_chrome
         global foobar2000
+        global necloud
 
         threadpid, procpid = win32process.GetWindowThreadProcessId(hwnd)
         try:
+            if not IsWindowVisibleOnScreen(hwnd):
+                return
             mypyproc = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS , False, procpid)
             exe = win32process.GetModuleFileNameEx(mypyproc, 0)
             if spotify and exe.endswith("Spotify.exe"):
@@ -214,6 +237,13 @@ def get_song_info():
                 if("-" in title):
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("]")+2:title.rfind(" [foobar2000]")-1]
+                    result.append([artist, song])
+                    return
+            if necloud and exe.endswith("cloudmusic.exe"):
+                title=win32gui.GetWindowText(hwnd)
+                if("-" in title):
+                    song = title[0:title.find("-")-1]
+                    artist = title[title.find("-")+2:]
                     result.append([artist, song])
                     return
         except:
