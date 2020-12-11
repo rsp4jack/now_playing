@@ -28,15 +28,13 @@
 # ==============================================================================
 
 import obspython as obs
-import sys, site
-site.main()
-print(sys.path)
+import site # if embbed
 import os, time, datetime, codecs, win32gui, win32process, win32api, win32con, ctypes, ctypes.wintypes
 
 
 working = True
 enabled = True
-check_frequency = 1000
+check_frequency = 1000 # ms
 display_text = '%artist - %title'
 debug_mode = True
 
@@ -54,7 +52,7 @@ def IsWindowVisibleOnScreen(hwnd):
     def IsWindowCloaked(hwnd):
         DWMWA_CLOAKED = 14
         cloaked = ctypes.wintypes.DWORD()
-        ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, ctypes.wintypes.DWORD(DWMWA_CLOAKED), ctypes.byref(cloaked), ctypes.sizeof(cloaked))  
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, ctypes.wintypes.DWORD(DWMWA_CLOAKED), ctypes.byref(cloaked), ctypes.sizeof(cloaked))  # need dwm
         return cloaked.value
     return ctypes.windll.user32.IsWindowVisible(hwnd) and (not IsWindowCloaked(hwnd))
 
