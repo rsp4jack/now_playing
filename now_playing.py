@@ -6,7 +6,7 @@
 #                   : Creepercdn(Fork)
 # date              : 2019 03 30
 # last update       : 2020 12 12
-# version           : 0.1
+# version           : 0.2
 # usage             : python now_playing.py
 # dependencies      : - Python 3.6 (https://www.python.org/)
 #                   :   - pywin32 (https://github.com/mhammond/pywin32/releases)
