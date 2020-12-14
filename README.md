@@ -4,7 +4,7 @@ OBS Script to display now playing
 From https://obsproject.com/forum/resources/now-playing.783/
 
 ## How to use
-**Notice: This script neee Windows Vista+(dwm.exe)**
+**Notice: This script need Windows Vista+(dwm.exe)**
 1. Install Python 3.6
 2. Install Pywin32(command: `python -m pip install pywin32 -U`)
 3. Load the script
