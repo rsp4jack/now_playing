@@ -26,31 +26,28 @@
 # python_version    : 3.6+
 # ==============================================================================
 
-import site
-import obspython as obs
-import win32gui
-import win32process
-import win32api
-import win32con
 import ctypes
 import ctypes.wintypes
+import site
 
+import win32api
+import win32con
+import win32gui
+import win32process
+
+import obspython as obs
+
+site.main()
 
 enabled = True
-check_frequency = 1000 #ms
+check_frequency = 1000  # ms
 display_text = '%artist - %title'
 debug_mode = True
 
 source_name = ''
 
-spotify = True
-vlc = True
-yt_firefox = True
-yt_chrome = True
-foobar2000 = True
-necloud = True
-aimp = True
-potplayer = True
+customset = {'spotify': True, 'vlc': True, 'yt_firefox': True, 'yt_chrome': True,
+             'foobar2000': True, 'necloud': True, 'aimp': True, 'potplayer': True}
 
 
 def IsWindowVisibleOnScreen(hwnd):
@@ -71,14 +68,18 @@ def script_defaults(settings):
     obs.obs_data_set_default_int(settings, "check_frequency", check_frequency)
     obs.obs_data_set_default_string(settings, "display_text", display_text)
     obs.obs_data_set_default_string(settings, "source_name", source_name)
-    obs.obs_data_set_default_bool(settings, "spotify", spotify)
-    obs.obs_data_set_default_bool(settings, "vlc", vlc)
-    obs.obs_data_set_default_bool(settings, "yt_firefox", yt_firefox)
-    obs.obs_data_set_default_bool(settings, "yt_chrome", yt_chrome)
-    obs.obs_data_set_default_bool(settings, "foobar2000", foobar2000)
-    obs.obs_data_set_default_bool(settings, "necloud", necloud)
-    obs.obs_data_set_default_bool(settings, "aimp", aimp)
-    obs.obs_data_set_default_bool(settings, "potplayer", potplayer)
+    obs.obs_data_set_default_bool(settings, "spotify", customset['spotify'])
+    obs.obs_data_set_default_bool(settings, "vlc", customset['vlc'])
+    obs.obs_data_set_default_bool(
+        settings, "yt_firefox", customset['yt_firefox'])
+    obs.obs_data_set_default_bool(
+        settings, "yt_chrome", customset['yt_chrome'])
+    obs.obs_data_set_default_bool(
+        settings, "foobar2000", customset['foobar2000'])
+    obs.obs_data_set_default_bool(settings, "necloud", customset['necloud'])
+    obs.obs_data_set_default_bool(settings, "aimp", customset['aimp'])
+    obs.obs_data_set_default_bool(
+        settings, "potplayer", customset['potplayer'])
 
 
 def script_description():
@@ -95,7 +96,7 @@ def script_description():
         "<hr>"
 
 
-def script_load(settings):
+def script_load(_):
     if debug_mode:
         print("[CS] Loaded script.")
 
@@ -118,7 +119,8 @@ def script_properties():
     obs.obs_properties_add_bool(props, "foobar2000", "Foobar2000")
     obs.obs_properties_add_bool(props, "necloud", "Netease Cloud Music")
     obs.obs_properties_add_bool(props, 'aimp', 'AIMP')
-    obs.obs_properties_add_bool(props, 'potplayer', 'PotPlayer(Only File name)')
+    obs.obs_properties_add_bool(
+        props, 'potplayer', 'PotPlayer(Only File name)')
     obs.obs_properties_add_text(
         props, "source_name", "Text source", obs.OBS_TEXT_DEFAULT)
     return props
@@ -139,22 +141,13 @@ def script_unload():
 
 
 def script_update(settings):
-    global debug_mode
-    if debug_mode:
-        print("[CS] Updated properties.")
-
     global enabled
     global display_text
     global check_frequency
     global source_name
-    global spotify
-    global vlc
-    global yt_firefox
-    global yt_chrome
-    global foobar2000
-    global necloud
-    global aimp
-    global potplayer
+    global debug_mode
+    if debug_mode:
+        print("[CS] Updated properties.")
 
     if obs.obs_data_get_bool(settings, "enabled") is True:
         if (not enabled):
@@ -175,14 +168,14 @@ def script_update(settings):
     display_text = obs.obs_data_get_string(settings, "display_text")
     source_name = obs.obs_data_get_string(settings, "source_name")
     check_frequency = obs.obs_data_get_int(settings, "check_frequency")
-    spotify = obs.obs_data_get_bool(settings, "spotify")
-    vlc = obs.obs_data_get_bool(settings, "vlc")
-    yt_firefox = obs.obs_data_get_bool(settings, "yt_firefox")
-    yt_chrome = obs.obs_data_get_bool(settings, "yt_chrome")
-    foobar2000 = obs.obs_data_get_bool(settings, "foobar2000")
-    necloud = obs.obs_data_get_bool(settings, "necloud")
-    aimp = obs.obs_data_get_bool(settings, "aimp")
-    potplayer = obs.obs_data_get_bool(settings, "potplayer")
+    customset['spotify'] = obs.obs_data_get_bool(settings, "spotify")
+    customset['vlc'] = obs.obs_data_get_bool(settings, "vlc")
+    customset['yt_firefox'] = obs.obs_data_get_bool(settings, "yt_firefox")
+    customset['yt_chrome'] = obs.obs_data_get_bool(settings, "yt_chrome")
+    customset['foobar2000'] = obs.obs_data_get_bool(settings, "foobar2000")
+    customset['necloud'] = obs.obs_data_get_bool(settings, "necloud")
+    customset['aimp'] = obs.obs_data_get_bool(settings, "aimp")
+    customset['potplayer'] = obs.obs_data_get_bool(settings, "potplayer")
 
 
 def update_song(artist="", song=""):
@@ -213,72 +206,72 @@ def get_song_info():
             mypyproc = win32api.OpenProcess(
                 win32con.PROCESS_ALL_ACCESS, False, procpid)
             exe = win32process.GetModuleFileNameEx(mypyproc, 0)
-            if spotify and exe.endswith("Spotify.exe"):
+            if customset['spotify'] and exe.endswith("Spotify.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:]
                     result.append([artist, song])
                     return
-            if vlc and exe.endswith("vlc.exe"):
+            if customset['vlc'] and exe.endswith("vlc.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:title.rfind("-")-1]
                     result.append([artist, song])
                     return
-            if yt_firefox and exe.endswith("firefox.exe"):
+            if customset['yt_firefox'] and exe.endswith("firefox.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("- YouTube" in title):
+                if "- YouTube" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:title.rfind("-")-1]
                     result.append([artist, song])
                     return
-            if yt_chrome and exe.endswith("chrome.exe"):
+            if customset['yt_chrome'] and exe.endswith("chrome.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("- YouTube" in title):
+                if "- YouTube" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:title.rfind("-")-1]
                     result.append([artist, song])
                     return
-            if foobar2000 and exe.endswith("foobar2000.exe"):
+            if customset['foobar2000'] and exe.endswith("foobar2000.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("]") +
                                  2:title.rfind(" [foobar2000]")-1]
                     result.append([artist, song])
                     return
-            if necloud and exe.endswith("cloudmusic.exe"):
+            if customset['necloud'] and exe.endswith("cloudmusic.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     song = title[0:title.find("-")-1]
                     artist = title[title.find("-")+2:]
                     result.append([artist, song])
                     return
-            if necloud and exe.endswith("cloudmusic.exe"):
+            if customset['necloud'] and exe.endswith("cloudmusic.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     song = title[0:title.find("-")-1]
                     artist = title[title.find("-")+2:]
                     result.append([artist, song])
                     return
-            if aimp and exe.endswith("AIMP.exe"):
+            if customset['aimp'] and exe.endswith("AIMP.exe"):
                 title = win32gui.GetWindowText(hwnd)
-                if("-" in title):
+                if "-" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:]
                     result.append([artist, song])
                     return
-            if potplayer and exe.endswith('PotPlayerMini.exe'):
+            if customset['potplayer'] and exe.endswith('PotPlayerMini.exe'):
                 title = win32gui.GetWindowText(hwnd)
-                if ('-' in title):
+                if '-' in title:
                     artist = 'Unknown'
                     song = title[0:title.rfind(' PotPlayer')-2]
                     result.append([artist, song])
                     return
-            
-        except Exception:
+
+        except:
             return
         return
 
