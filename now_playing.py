@@ -121,8 +121,20 @@ def script_properties():
     obs.obs_properties_add_bool(props, 'aimp', 'AIMP')
     obs.obs_properties_add_bool(
         props, 'potplayer', 'PotPlayer(Only File name)')
-    obs.obs_properties_add_text(
-        props, "source_name", "Text source", obs.OBS_TEXT_DEFAULT)
+
+    p = obs.obs_properties_add_list(
+        props, "source_name", "Text source",
+        obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
+
+    sources = obs.obs_enum_sources()
+    if sources:
+        for source in sources:
+            source_id = obs.obs_source_get_unversioned_id(source)
+            if source_id in ("text_gdiplus", "text_ft2_source"):
+                name = obs.obs_source_get_name(source)
+                obs.obs_property_list_add_string(p, name, name)
+    obs.source_list_release(sources)
+
     return props
 
 
@@ -150,14 +162,14 @@ def script_update(settings):
         print("[CS] Updated properties.")
 
     if obs.obs_data_get_bool(settings, "enabled") is True:
-        if (not enabled):
+        if not enabled:
             if debug_mode:
                 print("[CS] Enabled song timer.")
 
         enabled = True
         obs.timer_add(get_song_info, check_frequency)
     else:
-        if (enabled):
+        if enabled:
             if debug_mode:
                 print("[CS] Disabled song timer.")
 
