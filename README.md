@@ -2,6 +2,7 @@
 OBS Script to display now playing
 
 OBS Fourms Project page: https://obsproject.com/forum/resources/now-playing.1160/
+
 Original Project: https://obsproject.com/forum/resources/now-playing.783/
 
 ## How to use
