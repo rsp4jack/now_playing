@@ -47,7 +47,7 @@ debug_mode = True
 source_name = ''
 
 customset = {'spotify': True, 'vlc': True, 'yt_firefox': True, 'yt_chrome': True,
-             'foobar2000': True, 'necloud': True, 'aimp': True, 'potplayer': True}
+             'foobar2000': True, 'necloud': True, 'aimp': True, }
 
 
 def IsWindowVisibleOnScreen(hwnd):
@@ -78,8 +78,6 @@ def script_defaults(settings):
         settings, "foobar2000", customset['foobar2000'])
     obs.obs_data_set_default_bool(settings, "necloud", customset['necloud'])
     obs.obs_data_set_default_bool(settings, "aimp", customset['aimp'])
-    obs.obs_data_set_default_bool(
-        settings, "potplayer", customset['potplayer'])
 
 
 def script_description():
@@ -119,8 +117,6 @@ def script_properties():
     obs.obs_properties_add_bool(props, "foobar2000", "Foobar2000")
     obs.obs_properties_add_bool(props, "necloud", "Netease Cloud Music")
     obs.obs_properties_add_bool(props, 'aimp', 'AIMP')
-    obs.obs_properties_add_bool(
-        props, 'potplayer', 'PotPlayer(Only File name)')
 
     p = obs.obs_properties_add_list(
         props, "source_name", "Text source",
@@ -187,7 +183,6 @@ def script_update(settings):
     customset['foobar2000'] = obs.obs_data_get_bool(settings, "foobar2000")
     customset['necloud'] = obs.obs_data_get_bool(settings, "necloud")
     customset['aimp'] = obs.obs_data_get_bool(settings, "aimp")
-    customset['potplayer'] = obs.obs_data_get_bool(settings, "potplayer")
 
 
 def update_song(artist="", song=""):
@@ -273,13 +268,6 @@ def get_song_info():
                 if "-" in title:
                     artist = title[0:title.find("-")-1]
                     song = title[title.find("-")+2:]
-                    result.append([artist, song])
-                    return
-            if customset['potplayer'] and exe.endswith('PotPlayerMini.exe'):
-                title = win32gui.GetWindowText(hwnd)
-                if '-' in title:
-                    artist = 'Unknown'
-                    song = title[0:title.rfind(' PotPlayer')-2]
                     result.append([artist, song])
                     return
 
