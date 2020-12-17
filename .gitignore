@@ -1,5 +1,5 @@
 obspython.py
 _obspython.pyd
-__pycache__/*
+__pycache__/**
 .vscode
 .vscode/**
