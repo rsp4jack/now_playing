@@ -1,7 +1,8 @@
 # now_playing
 OBS Script to display now playing
 
-From https://obsproject.com/forum/resources/now-playing.783/
+OBS Fourms Project page: https://obsproject.com/forum/resources/now-playing.1160/
+Original Project: https://obsproject.com/forum/resources/now-playing.783/
 
 ## How to use
 **Notice: This script need Windows Vista+(dwm.exe)**
