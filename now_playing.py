@@ -29,6 +29,8 @@
 import ctypes
 import ctypes.wintypes
 import site
+from types import LambdaType
+from typing import AnyStr, Sequence
 
 import win32api
 import win32con
@@ -45,10 +47,78 @@ display_text = '%artist - %title'
 debug_mode = True
 
 source_name = ''
+calcingfunc = {}
 
-customset = {'spotify': True, 'vlc': True, 'yt_firefox': True, 'yt_chrome': True,
-             'foobar2000': True, 'necloud': True, 'aimp': True, }
+class Capture(object):
+    def __init__(self, id: AnyStr, display_name: AnyStr, state: bool) -> None:
+        self.id = id
+        self.display_name = display_name
+        self.state = state
+    
+    def capture(self, title: AnyStr, process: AnyStr) -> Sequence[str]:
+        """Capture the song info
 
+        Args:
+            title (AnyStr): [description]
+            process (AnyStr): [description]
+
+        Returns:
+            Sequence[str]: 0:Artist, 1:Song
+        """
+        # print((lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:x.rfind('-')-1]) if (y.lower().endswith('vlc.exe') and captures.vlc.state and "-" in x) else (None, None)))(title, process))
+        return calcingfunc.get(self.id, lambda x,y: ('Underdefined', 'ERR'))(title, process)
+
+
+# We defined some factory presets here for you.
+# BEGIN PRESETS DEFINE
+
+# BEGIN SPECIAL CAPTURES
+def foobar2000capture(title: AnyStr, process: AnyStr) -> Sequence[str]:
+    artist = ''
+    song = ''
+    if foobar2000.state and process.lower().endswith('foobar2000.exe'):
+        if ("-" not in title) and (title.find('[foobar2000]') != -1):
+            song = title[:title.rfind(" [foobar2000]")-1]
+        elif "-" in title:
+            artist = title[0:title.find("-")-1]
+            song = title[title.find("]")+2:title.rfind(" [foobar2000]")-1]
+    return (artist, song)
+
+def serato_capture(url: str):
+    # Thanks DachsbauTV for this feature! (#2)
+    # TODO: Add Serato capture (#2)
+    pass
+
+# END SPECIAL CAPTURES
+
+spotify = Capture('spotify', 'Spotify', True)
+calcingfunc['spotify'] = lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:]) if (y.lower().endswith('spotify.exe') and spotify.state and "-" in x) else (None, None))
+vlc = Capture('vlc', "VLC", True)
+calcingfunc['vlc'] = lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:x.rfind('-')-1]) if (y.lower().endswith('vlc.exe') and vlc.state and "-" in x) else (None, None))
+yt_firefox = Capture('yt_firefox', "YouTube for Firefox", True)
+calcingfunc['yt_firefox'] = lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:x.rfind('-')-1]) if (y.lower().endswith('firefox.exe') and yt_firefox.state and "- YouTube" in x) else (None, None))
+yt_chrome = Capture('yt_chrome', 'YouTube for Chrome', True)
+calcingfunc['yt_chrome'] = lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:x.rfind('-')-1]) if (y.lower().endswith('chrome.exe') and yt_chrome.state and "- YouTube" in x) else (None, None))
+
+foobar2000 = Capture('foobar2000', 'Foobar2000', True)
+calcingfunc['foobar2000'] = foobar2000capture
+necloud = Capture('necloud', 'Netease Cloud Music', True)
+calcingfunc['necloud'] = lambda x,y: ((x[x.find("-")+2:], x[0:x.find("-")-1]) if (y.lower().endswith('cloudmusic.exe') and necloud.state and "-" in x) else (None, None))
+aimp = Capture('aimp', 'AIMP', True)
+calcingfunc['aimp'] = lambda x,y: ((x[0:x.find('-')-1], x[x.find('-')+2:]) if (y.lower().endswith('aimp.exe') and aimp.state and "-" in x) else (None, None))
+
+# END PRESETS DEFINE
+
+def debug(*args, sep: str = ' ', end: str = '\n', flush: bool = False) -> None:
+    """A debug info printer
+
+    Args:
+        sep (str, optional): [description]. Defaults to ' '.
+        end (str, optional): [description]. Defaults to '\n'.
+        flush (bool, optional): [description]. Defaults to False.
+    """
+    if debug_mode:
+        print(*args, sep=sep, end=end, flush=flush)
 
 def IsWindowVisibleOnScreen(hwnd):
     def IsWindowCloaked(hwnd):
@@ -59,49 +129,47 @@ def IsWindowVisibleOnScreen(hwnd):
         return cloaked.value
     return ctypes.windll.user32.IsWindowVisible(hwnd) and (not IsWindowCloaked(hwnd))
 
+def callsmtc():
+    # TODO: SMTC.py supports
+    pass
+
 
 def script_defaults(settings):
-    if debug_mode:
-        print("Calling defaults")
+    debug("Calling defaults")
 
     obs.obs_data_set_default_bool(settings, "enabled", enabled)
     obs.obs_data_set_default_int(settings, "check_frequency", check_frequency)
     obs.obs_data_set_default_string(settings, "display_text", display_text)
     obs.obs_data_set_default_string(settings, "source_name", source_name)
-    obs.obs_data_set_default_bool(settings, "spotify", customset['spotify'])
-    obs.obs_data_set_default_bool(settings, "vlc", customset['vlc'])
-    obs.obs_data_set_default_bool(
-        settings, "yt_firefox", customset['yt_firefox'])
-    obs.obs_data_set_default_bool(
-        settings, "yt_chrome", customset['yt_chrome'])
-    obs.obs_data_set_default_bool(
-        settings, "foobar2000", customset['foobar2000'])
-    obs.obs_data_set_default_bool(settings, "necloud", customset['necloud'])
-    obs.obs_data_set_default_bool(settings, "aimp", customset['aimp'])
+    for i in filter(lambda x: not x.startswith('_'), calcingfunc.keys()):
+        obs.obs_data_set_default_bool(settings, globals()[i].id, globals()[i].state)
 
 
 def script_description():
-    if debug_mode:
-        print("Calling description")
+    debug("Calling description")
 
-    return "<b>Music Now Playing</b>" + \
-        "<hr>" + \
-        "Display current song as a text on your screen." + \
-        "<br/>" + \
-        "Available placeholders: " + \
-        "<br/>" + \
-        "<code>%artist</code>, <code>%title</code>" + \
-        "<hr>"
+    return \
+        """
+        <h1>Now Playing by Creepercdb</h1>
+        <hr/>
+        Display current song as a text on your screen.
+        <br/>
+        Available placeholders:
+        <br/>
+        <code>%artist</code>, <code>%title</code>
+        <br/>
+        GitHub:
+        <a href="https://github.com/Creepercdn/now_playing">Creepercdn/now_playing</a>
+        <hr/>
+        """
 
 
 def script_load(_):
-    if debug_mode:
-        print("[CS] Loaded script.")
+    debug("[CS] Loaded script.")
 
 
 def script_properties():
-    if debug_mode:
-        print("[CS] Loaded properties.")
+    debug("[CS] Loaded properties.")
 
     props = obs.obs_properties_create()
     obs.obs_properties_add_bool(props, "enabled", "Enabled")
@@ -110,13 +178,8 @@ def script_properties():
         props, "check_frequency", "Check frequency", 150, 10000, 100)
     obs.obs_properties_add_text(
         props, "display_text", "Display text", obs.OBS_TEXT_DEFAULT)
-    obs.obs_properties_add_bool(props, "spotify", "Spotify")
-    obs.obs_properties_add_bool(props, "vlc", "VLC")
-    obs.obs_properties_add_bool(props, "yt_firefox", "Youtube for Firefox")
-    obs.obs_properties_add_bool(props, "yt_chrome", "Youtube for Chrome")
-    obs.obs_properties_add_bool(props, "foobar2000", "Foobar2000")
-    obs.obs_properties_add_bool(props, "necloud", "Netease Cloud Music")
-    obs.obs_properties_add_bool(props, 'aimp', 'AIMP')
+    for i in filter(lambda x: not x.startswith('_'), calcingfunc.keys()):
+        obs.obs_properties_add_bool(props, globals()[i].id, globals()[i].display_name)
 
     p = obs.obs_properties_add_list(
         props, "source_name", "Text source",
@@ -135,15 +198,13 @@ def script_properties():
 
 
 def script_save(settings):
-    if debug_mode:
-        print("[CS] Saved properties.")
+    debug("[CS] Saved properties.")
 
     script_update(settings)
 
 
 def script_unload():
-    if debug_mode:
-        print("[CS] Unloaded script.")
+    debug("[CS] Unloaded script.")
 
     obs.timer_remove(get_song_info)
 
@@ -154,35 +215,26 @@ def script_update(settings):
     global check_frequency
     global source_name
     global debug_mode
-    if debug_mode:
-        print("[CS] Updated properties.")
+    debug("[CS] Updated properties.")
 
-    if obs.obs_data_get_bool(settings, "enabled") is True:
+    if obs.obs_data_get_bool(settings, "enabled"):
         if not enabled:
-            if debug_mode:
-                print("[CS] Enabled song timer.")
-
-        enabled = True
-        obs.timer_add(get_song_info, check_frequency)
+            debug("[CS] Enabled song timer.")
+            enabled = True
+            obs.timer_add(get_song_info, check_frequency)
     else:
         if enabled:
-            if debug_mode:
-                print("[CS] Disabled song timer.")
-
-        enabled = False
-        obs.timer_remove(get_song_info)
+            debug("[CS] Disabled song timer.")
+            enabled = False
+            obs.timer_remove(get_song_info)
 
     debug_mode = obs.obs_data_get_bool(settings, "debug_mode")
     display_text = obs.obs_data_get_string(settings, "display_text")
     source_name = obs.obs_data_get_string(settings, "source_name")
     check_frequency = obs.obs_data_get_int(settings, "check_frequency")
-    customset['spotify'] = obs.obs_data_get_bool(settings, "spotify")
-    customset['vlc'] = obs.obs_data_get_bool(settings, "vlc")
-    customset['yt_firefox'] = obs.obs_data_get_bool(settings, "yt_firefox")
-    customset['yt_chrome'] = obs.obs_data_get_bool(settings, "yt_chrome")
-    customset['foobar2000'] = obs.obs_data_get_bool(settings, "foobar2000")
-    customset['necloud'] = obs.obs_data_get_bool(settings, "necloud")
-    customset['aimp'] = obs.obs_data_get_bool(settings, "aimp")
+    for i in filter(lambda x: not x.startswith('_'), calcingfunc.keys()):
+        globals()[i].state = obs.obs_data_get_bool(settings, globals()[i].id)
+
 
 
 def update_song(artist="", song=""):
@@ -198,8 +250,7 @@ def update_song(artist="", song=""):
     obs.obs_source_update(source, settings)
     obs.obs_data_release(settings)
     obs.obs_source_release(source)
-    if debug_mode:
-        print("[CS] Now Playing : " + artist + " / " + song)
+    debug("[CS] Now Playing : " + artist + " / " + song)
 
 
 def get_song_info():
@@ -213,63 +264,21 @@ def get_song_info():
             mypyproc = win32api.OpenProcess(
                 win32con.PROCESS_ALL_ACCESS, False, procpid)
             exe = win32process.GetModuleFileNameEx(mypyproc, 0)
-            if customset['spotify'] and exe.endswith("Spotify.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("-")+2:]
+            title = win32gui.GetWindowText(hwnd)
+            for i in filter(lambda x: not x.startswith('_'), calcingfunc.keys()):
+                res = globals()[i].capture(title, exe)
+                
+                # 0:Arist, 1:Song
+                artist = ''
+                song = ''
+                if res[0]:
+                    artist = res[0]
+                if res[1]:
+                    song = res[1]
+                if any([artist, song]):
                     result.append([artist, song])
-                    return
-            if customset['vlc'] and exe.endswith("vlc.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("-")+2:title.rfind("-")-1]
-                    result.append([artist, song])
-                    return
-            if customset['yt_firefox'] and exe.endswith("firefox.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "- YouTube" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("-")+2:title.rfind("-")-1]
-                    result.append([artist, song])
-                    return
-            if customset['yt_chrome'] and exe.endswith("chrome.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "- YouTube" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("-")+2:title.rfind("-")-1]
-                    result.append([artist, song])
-                    return
-            if customset['foobar2000'] and exe.endswith("foobar2000.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("]") +
-                                 2:title.rfind(" [foobar2000]")-1]
-                    result.append([artist, song])
-                    return
-            if customset['necloud'] and exe.endswith("cloudmusic.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    song = title[0:title.find("-")-1]
-                    artist = title[title.find("-")+2:]
-                    result.append([artist, song])
-                    return
-            if customset['necloud'] and exe.endswith("cloudmusic.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    song = title[0:title.find("-")-1]
-                    artist = title[title.find("-")+2:]
-                    result.append([artist, song])
-                    return
-            if customset['aimp'] and exe.endswith("AIMP.exe"):
-                title = win32gui.GetWindowText(hwnd)
-                if "-" in title:
-                    artist = title[0:title.find("-")-1]
-                    song = title[title.find("-")+2:]
-                    result.append([artist, song])
-                    return
+                    print('append')
+
 
         except:
             return
