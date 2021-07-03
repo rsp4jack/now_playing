@@ -277,9 +277,6 @@ def get_song_info():
                     song = res[1]
                 if any([artist, song]):
                     result.append([artist, song])
-                    print('append')
-
-
         except:
             return
         return
