@@ -150,7 +150,7 @@ def script_description():
 
     return \
         """
-        <h1>Now Playing by Creepercdb</h1>
+        <h1>Now Playing by Creepercdn</h1>
         <hr/>
         Display current song as a text on your screen.
         <br/>
