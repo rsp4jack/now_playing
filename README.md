@@ -1,6 +1,8 @@
 # now_playing
 OBS Script to display now playing
 
+This project is NOT unmaintained. It is just stable.
+
 OBS Fourms Project page: https://obsproject.com/forum/resources/now-playing.1160/
 
 Original Project: https://obsproject.com/forum/resources/now-playing.783/
