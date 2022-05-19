@@ -10,10 +10,10 @@ Original Project: https://obsproject.com/forum/resources/now-playing.783/
 ## How to use
 **Notice: This script need Windows Vista+(dwm.exe)**
 1. Install Python 3.6
-2. Install Pywin32(command: `python -m pip install pywin32 -U`)
-3. Load the script
+2. Install Pywin32(command: `python -m pip install pywin32 -U` (Powershell))
+3. Load the script (OBS > Tools > Scripts > '+' > Select script file)
 4. Create a GDI+ Text Source
-5. Open script settings, set "Text Source"
+5. Open script settings, select "Text Source"
 6. Enjoy!
 
 ## Tips:
