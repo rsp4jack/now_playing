@@ -274,11 +274,9 @@ def get_song_info():
                 artist = ''
                 song = ''
                 if res[0]:
-                    tempartist = os.path.splitext(res[0])
-                    artist = tempartist[0]
+                    artist = os.path.splitext(res[0])[0]
                 if res[1]:
-                    tempsong = os.path.splitext(res[1])
-                    song = tempsong[0]
+                    song = os.path.splitext(res[1])[0]
                 if any([artist, song]):
                     result.append([artist, song])
         except:
