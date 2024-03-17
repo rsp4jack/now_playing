@@ -1,0 +1,3 @@
+pywin32>=300
+winrt-Windows.Foundation>=2.0.0
+winrt-Windows.Media.Control>=2.0.0
