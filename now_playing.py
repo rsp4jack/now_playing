@@ -304,6 +304,8 @@ async def doUpdate():
     data: list[dict[str, Any]] = list(chain(*datalist))
     
     log.debug(f"doUpdate: {data}")
+    if not data:
+        return
     try:
         update_song(data[0])
     except Exception:
