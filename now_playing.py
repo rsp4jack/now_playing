@@ -36,8 +36,10 @@ import ctypes
 import ctypes.wintypes
 import logging
 import site
+import sys
 import threading
 import time
+import traceback
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
@@ -92,7 +94,7 @@ logging.basicConfig(
     format="[{asctime}] [{threadName}/{levelname}]: [{module}]: {message}",
     datefmt="%H:%M:%S",
     style="{",
-    level=logging.DEBUG
+    level=logging.INFO
 )
 
 log = logging.getLogger(__name__)
@@ -149,14 +151,23 @@ def foobar2000capture(title: str) -> tuple[str, str]:
         song = title[title.find("]")+2:title.rfind(" [foobar2000]")-1]
     return (artist, song)
 
+manager: SMTCManager | None = None
+
 @timeit
 async def smtcCaptureAsync() -> list[dict[str, Any]]:
-    manager: SMTCManager = await SMTCManager.request_async()
+    global manager
+    if not manager:
+        manager = await SMTCManager.request_async()
     session = manager.get_current_session()
     if not session:
         return []
-    properties: SMTCProperties = await session.try_get_media_properties_async()
+    try:
+        properties: SMTCProperties = await session.try_get_media_properties_async()
+    except PermissionError as err:
+        if err.winerror == -2147024875:
+            log.warning('SMTCSession try_get_media_properties_async(): ERROR_NOT_READY', exc_info=True)
     # TODO: more properties
+    # TODO: use smtc event handler
     return [{'artist': properties.artist, 'title': properties.title}]
 
 def smtcCapture() -> list[dict[str, Any]]:
@@ -173,23 +184,16 @@ captures: dict[str, Capture] = {
     'aimp': Capture('aimp', 'AIMP', win32TitleCaptureWrapper('aimp.exe')(lambda x: [{'artist': x[0:x.find('-')-1], 'title': x[x.find('-')+2:]}] if '-' in x else [])),
 }
 
-def script_defaults(settings):
-    log.debug(f"script_defaults({settings!r})")
-
-    obs.obs_data_set_default_bool(settings, "enabled", True)
-    obs.obs_data_set_default_int(settings, "check_frequency", 1000)
-    obs.obs_data_set_default_string(settings, "display_text", "%artist - %title")
-    obs.obs_data_set_default_string(settings, "source_name", '')
-    for name in captures.keys():
-        obs.obs_data_set_default_bool(settings, name, name == 'smtc')
 
 def script_properties():
     log.debug("script_properties()")
-    log.info(f'locale: {obs.obs_get_locale()}')
+    # log.info(f'locale: {obs.obs_get_locale()}')
 
     props = obs.obs_properties_create()
     obs.obs_properties_add_bool(props, "enabled", "Enabled")
-    obs.obs_properties_add_bool(props, "debug_mode", "Debug Mode")
+    logcombo = obs.obs_properties_add_list(props, "log_level", "Log level", obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
+    for name in ['NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITIAL', 'SILENT']:
+        obs.obs_property_list_add_string(logcombo, name, name)
     obs.obs_properties_add_int(
         props, "check_frequency", "Check frequency", 150, 60000, 100)
     obs.obs_properties_add_text(
@@ -212,6 +216,17 @@ def script_properties():
 
     return props
 
+def script_defaults(settings):
+    log.debug(f"script_defaults({settings!r})")
+
+    obs.obs_data_set_default_bool(settings, "enabled", True)
+    obs.obs_data_set_default_int(settings, "check_frequency", 1000)
+    obs.obs_data_set_default_string(settings, "display_text", "%artist - %title")
+    obs.obs_data_set_default_string(settings, "source_name", '')
+    obs.obs_data_set_default_string(settings, "log_level", 'INFO')
+    for name in captures.keys():
+        obs.obs_data_set_default_bool(settings, name, name == 'smtc')
+
 def script_save(settings):
     log.debug(f"script_save({settings!r})")
 
@@ -222,13 +237,19 @@ def script_update(settings):
     global display_text
     global check_frequency
     global source_name
-    global debug_mode
     log.debug(f"script_update({settings!r})")
 
-    if obs.obs_data_get_bool(settings, "debug_mode"):
-        logging.getLogger().setLevel(logging.DEBUG)
+    loglevel = obs.obs_data_get_string(settings, "log_level")
+    if loglevel == 'SILENT':
+        logging.getLogger().setLevel(logging.CRITICAL + 100)
     else:
-        logging.getLogger().setLevel(logging.INFO)
+        try:
+            logging.getLogger().setLevel(loglevel)
+        except ValueError:
+            traceback.print_exc(file=sys.stderr)
+            logging.getLogger().setLevel(logging.INFO)
+
+
     display_text = obs.obs_data_get_string(settings, "display_text")
     source_name = obs.obs_data_get_string(settings, "source_name")
     new_check_frequency = obs.obs_data_get_int(settings, "check_frequency")
@@ -276,32 +297,39 @@ def start_eventloop():
     loop.run_forever()
 def startevthread():
     global loopthread
+    log.debug('Starting event loop thread')
     if loopthread and loopthread.is_alive():
-        log.warning('loopthread is still alive!!!')
+        log.warning('loopthread is still alive!!!', stack_info=True)
+        loop.stop()
     loopthread = threading.Thread(target=start_eventloop, name='nowplaying_eventloop', daemon=True)
     loopthread.start()
 
 def script_load(_):
-    log.info('script_load()')
+    log.debug('script_load()')
     startevthread()
 
 def script_unload():
-    log.info('script_unload()')
+    log.debug('script_unload()')
     obs.timer_remove(onUpdate)
-    _ = loop.call_soon(loop.stop)
+    [task.cancel('plugin unloaded') for task in asyncio.all_tasks(loop)]
+    loop.stop()
 
 
 def onUpdate():
     fut = asyncio.run_coroutine_threadsafe(doUpdate(), loop)
     def callback(f):
         if exc := f.exception():
-            log.error('doUpdate error', exc_info=exc)
+            log.error('doUpdate fut error', exc_info=exc)
             return
     fut.add_done_callback(callback)
 
 async def doUpdate():
-    datalist = await asyncio.gather(*[asyncio.to_thread(captures[name]) for name in encaptureSet ])
-    data: list[dict[str, Any]] = list(chain(*datalist))
+    try:
+        datalist = await asyncio.gather(*[asyncio.to_thread(captures[name]) for name in encaptureSet ])
+        data: list[dict[str, Any]] = list(chain(*datalist))
+    except Exception:
+        log.warning('capture error', exc_info=True)
+        return
     
     log.debug(f"doUpdate: {data}")
     if not data:
@@ -309,4 +337,4 @@ async def doUpdate():
     try:
         update_song(data[0])
     except Exception:
-        log.error('onUpdate error', exc_info=True)
+        log.error('update_song error', exc_info=True)
