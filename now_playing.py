@@ -166,6 +166,7 @@ async def smtcCaptureAsync() -> list[dict[str, Any]]:
     except PermissionError as err:
         if err.winerror == -2147024875:
             log.warning('SMTCSession try_get_media_properties_async(): ERROR_NOT_READY', exc_info=True)
+            return []
     # TODO: more properties
     # TODO: use smtc event handler
     return [{'artist': properties.artist, 'title': properties.title}]
