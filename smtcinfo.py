@@ -13,11 +13,15 @@ import asyncio
 from collections.abc import Coroutine
 from datetime import timedelta
 import logging
+import os
+import shutil
 import site
 import sys
 import threading
 import time
 import traceback
+import tempfile
+import hashlib
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
@@ -27,6 +31,7 @@ import concurrent.futures
 
 from winrt.windows.foundation import EventRegistrationToken
 import winrt.windows.foundation as _
+from winrt.windows.storage.streams import IRandomAccessStreamReference, DataReader
 from winrt.windows.foundation.collections import IVectorView
 from winrt.windows.media.control import \
     GlobalSystemMediaTransportControlsSessionManager as SMTCManager
@@ -43,8 +48,6 @@ def convert_future_exc(exc):
     exc_class = type(exc)
     if exc_class is concurrent.futures.CancelledError:
         return asyncio.CancelledError(*exc.args).with_traceback(exc.__traceback__)
-    elif exc_class is concurrent.futures.TimeoutError:
-        return asyncio.TimeoutError(*exc.args).with_traceback(exc.__traceback__)
     elif exc_class is concurrent.futures.InvalidStateError:
         return asyncio.InvalidStateError(*exc.args).with_traceback(exc.__traceback__)
     else:
@@ -74,6 +77,7 @@ enabled = False
 check_frequency = 1000  # ms
 display_expr: CodeType | None = None
 source_name = ''
+thumbsource_name = ''
 
 logging.basicConfig(
     format="[{asctime}] [{threadName}/{levelname}]: [{module}]: {message}",
@@ -100,6 +104,9 @@ def script_properties():
     p = obs.obs_properties_add_list(
         props, "source_name", "Text source",
         obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
+    p2 = obs.obs_properties_add_list(
+        props, "thumbsource_name", "Thumbnail source",
+        obs.OBS_COMBO_TYPE_EDITABLE, obs.OBS_COMBO_FORMAT_STRING)
 
     sources = obs.obs_enum_sources()
     if sources:
@@ -108,6 +115,9 @@ def script_properties():
             if source_id in ("text_gdiplus", "text_ft2_source"):
                 name = obs.obs_source_get_name(source)
                 obs.obs_property_list_add_string(p, name, name)
+            elif source_id == 'image_source':
+                name = obs.obs_source_get_name(source)
+                obs.obs_property_list_add_string(p2, name, name)
     obs.source_list_release(sources)
 
     return props
@@ -116,8 +126,9 @@ def script_defaults(settings):
     log.debug(f"script_defaults({settings!r})")
 
     obs.obs_data_set_default_bool(settings, "enabled", True)
-    obs.obs_data_set_default_string(settings, "display_expr", "f'{data[\"artist\"]} - {data[\"title\"]}'")
+    obs.obs_data_set_default_string(settings, "display_expr", r"f'{artist} - {title} \n{roundtd(position)}/{roundtd(end_time)}'")
     obs.obs_data_set_default_string(settings, "source_name", '')
+    obs.obs_data_set_default_string(settings, "thumbsource_name", '')
     obs.obs_data_set_default_string(settings, "log_level", 'INFO')
 
 def script_save(settings):
@@ -130,6 +141,7 @@ def script_update(settings):
     global display_expr
     global check_frequency
     global source_name
+    global thumbsource_name
     log.debug(f"script_update({settings!r})")
 
     loglevel = obs.obs_data_get_string(settings, "log_level")
@@ -145,13 +157,15 @@ def script_update(settings):
 
     display_expr = compile(obs.obs_data_get_string(settings, "display_expr"), '<string>', 'eval')
     source_name = obs.obs_data_get_string(settings, "source_name")
+    thumbsource_name = obs.obs_data_get_string(settings, "thumbsource_name")
     
     enabled = obs.obs_data_get_bool(settings, "enabled")
     if enabled and not manager:
         runcoro(smtcInitalizeAsync())
+        # obs.timer_add(on_timer, 500)
     elif not enabled and manager:
         runcoro(smtcDeinitalizeAsync())
-
+        # obs.timer_remove(on_timer)
     if enabled:
         smtcUpdate(currentSession)
 
@@ -205,18 +219,20 @@ def smtcSetSession(session: SMTCSession | None):
     onMediaPropChangedToken = currentSession.add_media_properties_changed(onMediaPropChanged)
 
     def onTimelineChanged(sender: SMTCSession | None, event: TimelinePropertiesChangedEventArgs | None):
-        smtcUpdate(currentSession)
+        smtcUpdate(currentSession, thumb=False)
     onTimelineChangedToken = currentSession.add_timeline_properties_changed(onTimelineChanged)
 
     smtcUpdate(currentSession)
 
-def smtcUpdate(session: SMTCSession | None):
+def smtcUpdate(session: SMTCSession | None, *, thumb: bool = True):
     datas = smtcCapture(session)
     if not datas:
         log.debug('smtcUpdate(): no session')
         return
 
     update_text(datas[0])
+    if thumb or 'thumbnail' not in datas[0]:
+        update_thumbnail(datas[0].get('thumbnail'))
 
 def smtcCapture(session: SMTCSession | None, timeout: float = 3) -> list[dict[str, Any]]:
     return runcoro(smtcCaptureAsync(session), timeout)
@@ -230,7 +246,7 @@ async def smtcCaptureAsync(session: SMTCSession | None) -> list[dict[str, Any]]:
         timeline: TimelineProperties | None = session.get_timeline_properties()
     except PermissionError as err:
         if err.winerror == -2147024875:
-            log.warning('SMTCSession try_get_media_properties_async(): ERROR_NOT_READY', exc_info=True)
+            log.info('SMTCSession try_get_media_properties_async(): ERROR_NOT_READY', exc_info=True)
             return []
     # TODO: more properties
     # TODO: use smtc event handler
@@ -242,7 +258,8 @@ async def smtcCaptureAsync(session: SMTCSession | None) -> list[dict[str, Any]]:
         'genres': list(properties.genres) if properties.genres else None,
         'album_title': properties.album_title,
         'album_artist': properties.album_artist,
-        'album_track_count': properties.album_track_count
+        'album_track_count': properties.album_track_count,
+        'thumbnail': properties.thumbnail
     }
     timelineprop = {}
     if timeline:
@@ -259,13 +276,19 @@ async def smtcCaptureAsync(session: SMTCSession | None) -> list[dict[str, Any]]:
 
 
 def update_text(data: dict[str, Any]):
-    def roundtimedelta(td: timedelta) -> timedelta:
+    def roundtd(td: timedelta) -> timedelta:
         return timedelta(seconds=round(td.total_seconds()))
-    namespace: dict[str, Any] = {'data': data, 'roundtimedelta': roundtimedelta}
+    def fmttd(td: timedelta):
+        return str(td).removeprefix('0:').removeprefix('0')
+    namespace: dict[str, Any] = {'data': data, 'roundtd': roundtd, 'fmttd': fmttd}
     namespace.update(sys.modules)
     namespace.update(data)
     if display_expr:
-        now_playing = eval(display_expr, namespace)
+        try:
+            now_playing = eval(display_expr, namespace)
+        except:
+            log.warning('Failed to evaluate display expression', exc_info=True)
+            now_playing = '...'
     else:
         now_playing = "..."
     settings = obs.obs_data_create()
@@ -276,6 +299,45 @@ def update_text(data: dict[str, Any]):
     obs.obs_source_release(source)
 
     log.debug(f"updated: {now_playing} <- {data}")
+
+thumbdir: str | None = None
+
+async def update_thumbnail_async(thumb: IRandomAccessStreamReference | None):
+    assert(thumbdir)
+    filename = ''
+    if thumb:
+        with await thumb.open_read_async() as rastream:
+            log.debug(f'received thumb {rastream.content_type} {rastream.size}bytes')
+            with open(os.path.join(thumbdir, 'thumbnail'), 'wb') as f:
+                filename = f.name
+                log.debug(f'update_thumbnai_async mkstemp {f.name}')
+                with DataReader(rastream.get_input_stream_at(0)) as reader:
+                    await reader.load_async(rastream.size)
+                    while True:
+                        len = min(4096, reader.unconsumed_buffer_length)
+                        if len == 0:
+                            break
+                        try:
+                            buf = reader.read_buffer(len)
+                        except:
+                            log.warning(f'read_buffer({len}) failed', exc_info=True)
+                            break
+                        if not buf:
+                            break
+                        written = f.write(buf)
+                        log.debug(f'thumb written {written}, buf {buf.length}, read {len}')
+    
+    props = obs.obs_data_create()
+    obs.obs_data_set_string(props, 'file', filename)
+    thumbsrc = obs.obs_get_source_by_name(thumbsource_name)
+    obs.obs_source_update(thumbsrc, props)
+    obs.obs_data_release(props)
+    obs.obs_source_release(thumbsrc)
+    
+    log.debug(f'update_thumbnail_async: source {thumbsource_name} updated to {filename}')
+
+def update_thumbnail(thumb: IRandomAccessStreamReference | None, timeout: float = 3):
+    runcoro(update_thumbnail_async(thumb), timeout)
 
 tpool = ThreadPoolExecutor(4, 'nowplaying_updateworker')
 loop = asyncio.new_event_loop()
@@ -301,13 +363,21 @@ def runcoro(coro: Coroutine, timeout: float | None = None):
     return fut.result(timeout)
 
 def script_load(_):
+    global thumbdir
     log.debug('script_load()')
+    thumbdir = tempfile.mkdtemp(prefix='smtcinfo_thumbs_')
     startevthread()
     runcoro(smtcInitalizeAsync())
 def script_unload():
+    global thumbdir
     log.debug('script_unload()')
+    if thumbdir:
+        shutil.rmtree(thumbdir)
+        thumbdir = None
     runcoro(smtcDeinitalizeAsync(), 5)
     [task.cancel('plugin unloaded') for task in asyncio.all_tasks(loop)]
     loop.stop()
-    
+
+def on_timer():
+    smtcUpdate(currentSession, thumb=False)
 
