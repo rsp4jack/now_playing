@@ -9,9 +9,20 @@ def script_description():
         <hr/>
         """
 
+DEFAULT_DISPLAY_EXPR = r"""
+''.join([
+    f'{artist} - {title} ',
+    *(
+        ['\n', f'{fmttd(roundtd(position))}/{fmttd(roundtd(end_time))}']
+        if posavail() else
+        []
+    )
+])
+""".strip()
+
 import asyncio
 from collections.abc import Coroutine
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import os
 import shutil
@@ -26,7 +37,7 @@ from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 from types import CodeType, LambdaType
-from typing import Any, AnyStr, Callable, Sequence
+from typing import Any, AnyStr, Callable, Sequence, cast
 import concurrent.futures
 
 from winrt.windows.foundation import EventRegistrationToken
@@ -99,7 +110,7 @@ def script_properties():
     for name in ['NOTSET', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITIAL', 'SILENT']:
         obs.obs_property_list_add_string(logcombo, name, name)
     obs.obs_properties_add_text(
-        props, "display_expr", "Display expr", obs.OBS_TEXT_DEFAULT)
+        props, "display_expr", "Display expr", obs.OBS_TEXT_MULTILINE)
 
     p = obs.obs_properties_add_list(
         props, "source_name", "Text source",
@@ -126,7 +137,7 @@ def script_defaults(settings):
     log.debug(f"script_defaults({settings!r})")
 
     obs.obs_data_set_default_bool(settings, "enabled", True)
-    obs.obs_data_set_default_string(settings, "display_expr", r"f'{artist} - {title} \n{roundtd(position)}/{roundtd(end_time)}'")
+    obs.obs_data_set_default_string(settings, "display_expr", DEFAULT_DISPLAY_EXPR)
     obs.obs_data_set_default_string(settings, "source_name", '')
     obs.obs_data_set_default_string(settings, "thumbsource_name", '')
     obs.obs_data_set_default_string(settings, "log_level", 'INFO')
@@ -280,7 +291,9 @@ def update_text(data: dict[str, Any]):
         return timedelta(seconds=round(td.total_seconds()))
     def fmttd(td: timedelta):
         return str(td).removeprefix('0:').removeprefix('0')
-    namespace: dict[str, Any] = {'data': data, 'roundtd': roundtd, 'fmttd': fmttd}
+    def posavail():
+        return 'last_updated_time' in data and cast(datetime, data['last_updated_time']).year != 1601
+    namespace: dict[str, Any] = {'data': data, 'roundtd': roundtd, 'fmttd': fmttd, 'posavail': posavail}
     namespace.update(sys.modules)
     namespace.update(data)
     if display_expr:
