@@ -3,3 +3,4 @@ winrt-Windows.Foundation>=2.0.0
 winrt-Windows.Media.Control>=2.0.0
 winrt-windows.foundation.collections>=2.0.0
 winrt-windows.storage.streams>=2.0.0
+winrt-windows.media>=2.0.0
