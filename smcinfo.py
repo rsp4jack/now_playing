@@ -208,13 +208,14 @@ def script_update(settings):
     source_name = obs.obs_data_get_string(settings, "source_name")
     thumbsource_name = obs.obs_data_get_string(settings, "thumbsource_name")
 
-    enabled = obs.obs_data_get_bool(settings, "enabled")
-    if enabled and not manager:
+    toenabled = obs.obs_data_get_bool(settings, "enabled")
+    if toenabled and not enabled:
         runcoro(smcInitalizeAsync())
         # obs.timer_add(on_timer, 500)
-    elif not enabled and manager:
+    elif not toenabled and enabled:
         runcoro(smcDeinitalizeAsync())
         # obs.timer_remove(on_timer)
+    enabled = toenabled
     if enabled:
         runcoro(smcUpdateAsync())
 
