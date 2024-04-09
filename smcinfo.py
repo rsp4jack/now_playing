@@ -14,7 +14,7 @@ DEFAULT_DISPLAY_EXPR = r"""
 ''.join([
     f'{artist} - {title} ',
     *(
-        ['\n', f'{fmttd(roundtd(position))}/{fmttd(roundtd(end_time))}']
+        ['\n', f'{fmttd(roundtd(predictedpos()))}/{fmttd(roundtd(end_time))}']
         if posavail() else
         []
     )
@@ -22,6 +22,7 @@ DEFAULT_DISPLAY_EXPR = r"""
 """.strip()
 
 import asyncio
+import aiohttp
 import concurrent.futures
 import logging
 import os
@@ -37,6 +38,7 @@ from datetime import datetime, timedelta
 from types import CodeType
 from typing import Any, cast
 import platform
+import urllib.parse
 
 MEDIACTRL = {'Windows': 'SMTC', 'Linux': 'MPRIS',}.get(platform.system())
 
@@ -95,7 +97,7 @@ def timeit(func):
     return helper
 
 logging.basicConfig(
-    format="[{asctime}] [{threadName}/{levelname}]: [{module}]: {message}",
+    format="[{asctime}] [{module}] [{threadName}/{levelname}]: [{funcName}]: {message}",
     datefmt="%H:%M:%S",
     style="{",
     level=logging.INFO,
@@ -210,11 +212,13 @@ def script_update(settings):
 
     toenabled = obs.obs_data_get_bool(settings, "enabled")
     if toenabled and not enabled:
+        log.info('Initalizing media controls')
         runcoro(smcInitalizeAsync())
-        # obs.timer_add(on_timer, 500)
+        obs.timer_add(on_timer, 500)
     elif not toenabled and enabled:
+        log.info('Deinitalizing media controls')
         runcoro(smcDeinitalizeAsync())
-        # obs.timer_remove(on_timer)
+        obs.timer_remove(on_timer)
     enabled = toenabled
     if enabled:
         runcoro(smcUpdateAsync())
@@ -414,7 +418,9 @@ elif MEDIACTRL == 'MPRIS':
     
     async def mprisInitalize():
         global bus
+        log.info('Initalizing DBus')
         bus = await MessageBus().connect()
+        await mprisDiscoverService()
     
     async def mprisDiscoverService():
         global playerobj
@@ -444,29 +450,36 @@ elif MEDIACTRL == 'MPRIS':
         introspect = await bus.introspect(busname, '/org/mpris/MediaPlayer2')
         playerobj = bus.get_proxy_object(busname, '/org/mpris/MediaPlayer2', introspect)
 
-        def on_changed():
-            runcoro(mprisUpdate())
+        playeriface = playerobj.get_interface('org.mpris.MediaPlayer2.Player')
+        propiface = playerobj.get_interface('org.freedesktop.DBus.Properties')
 
-        playerobj.on_properties_changed(on_changed) # type: ignore
-        playerobj,on_seeked(on_changed) # type: ignore
+        async def on_properties_changed(interface, changed, invalidated):
+            log.debug(f'MPRIS on_properties_changed: {interface!r} {changed!r} {invalidated!r}')
+            await mprisUpdate()
+        
+        async def on_seeked(pos):
+            log.debug(f'MPRIS on_seeked: {pos}')
+            await mprisUpdate()
 
+        propiface.on_properties_changed(on_properties_changed) # type: ignore
+        playeriface.on_seeked(on_seeked) # type: ignore
 
-
+    @timeit
     async def mprisCapture():
         assert(playerobj)
         player = playerobj.get_interface('org.mpris.MediaPlayer2.Player')
         meta: dict[str, Any] = await player.get_metadata() # type: ignore
-        meta = {k.lower(): v for k,v in meta.items()}
+        meta = {k.lower(): v.value for k,v in meta.items()}
         position = timedelta(microseconds=await player.get_position()) # type: ignore
         data = {
-            'artist': ', '.join(meta['xesam:artist']),
-            'title': meta['xesam:title'],
-            'track_number': meta['xesam:tracknumber'],
-            'genres': meta['xesam:genre'],
-            'album_title': meta['xesam:album'],
-            'album_artist': meta['xesam:albumartist'],
-            'album_track_count': meta['xesam:albumtrackcount'],
-            'thumbnail': meta['mpris:arturl'],
+            'artist': ', '.join(meta.get('xesam:artist', [])),
+            'title': meta.get('xesam:title'),
+            'track_number': meta.get('xesam:tracknumber'),
+            'genres': meta.get('xesam:genre'),
+            'album_title': meta.get('xesam:album'),
+            'album_artist': meta.get('xesam:albumartist'),
+            'album_track_count': meta.get('xesam:albumtrackcount'),
+            'thumbnail': await mprisFetchThumbnail(meta['mpris:arturl']) if 'mpris:arturl' in meta else None,
 
             'position': position,
             'end_time': timedelta(microseconds=meta['mpris:length']),
@@ -494,6 +507,20 @@ elif MEDIACTRL == 'MPRIS':
             file = data["thumbnail"]
             update_thumbnail(file)
     
+    async def mprisFetchThumbnail(url: str):
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme == 'file':
+            return urllib.parse.unquote_plus(parsed.path)
+        if parsed.scheme == 'http' or parsed.scheme == 'https':
+            assert(thumbdir)
+            async with aiohttp.ClientSession(trust_env=True) as session:
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    with open(os.path.join(thumbdir, url.replace('/', '_')), 'wb') as f:
+                        f.write(await resp.read())
+                        return f.name
+        raise ValueError(f"Unsupported thumbnail URL: {url}")
+    
     smcInitalizeAsync = mprisInitalize
     async def smcDeinitalizeAsync():
         pass
@@ -513,11 +540,18 @@ def update_text(data: dict[str, Any] | None):
             and cast(datetime, data["last_updated_time"]).year != 1601
         )
 
+    def predictedpos() -> timedelta:
+        assert(data)
+        if data['playback_status'] != 'Playing':
+            return data['position']
+        return data['position']+(datetime.now()-data['last_updated_time'])*data['playback_rate']
+
     namespace: dict[str, Any] = {
         "data": data,
         "roundtd": roundtd,
         "fmttd": fmttd,
         "posavail": posavail,
+        "predictedpos": predictedpos,
     }
     namespace.update(sys.modules)
     if data:
@@ -529,6 +563,7 @@ def update_text(data: dict[str, Any] | None):
             log.warning("Failed to evaluate display expression", exc_info=True)
             now_playing = "..."
     else:
+        log.warning('No display expression')
         now_playing = "..."
     settings = obs.obs_data_create()
     obs.obs_data_set_string(settings, "text", now_playing)
@@ -537,7 +572,7 @@ def update_text(data: dict[str, Any] | None):
     obs.obs_data_release(settings)
     obs.obs_source_release(source)
 
-    log.debug(f"update_text: source {source}: {now_playing} <- {data}")
+    log.debug(f"source {source_name}: {now_playing} <- {data}")
 
 def update_thumbnail(file: str):
     props = obs.obs_data_create()
@@ -548,7 +583,7 @@ def update_thumbnail(file: str):
     obs.obs_source_release(thumbsrc)
 
     log.debug(
-        f"update_thumbnail: source {thumbsource_name}: {file}"
+        f"source {thumbsource_name}: {file}"
     )
 
 
@@ -557,7 +592,7 @@ def update_thumbnail(file: str):
 ###! --->
 
 
-tpool = ThreadPoolExecutor(4, "nowplaying_updateworker")
+tpool = ThreadPoolExecutor(4, "smc_pool_thread_")
 loop = asyncio.new_event_loop()
 loop.set_default_executor(tpool)
 loopthread: threading.Thread | None = None
@@ -569,7 +604,7 @@ def startevthread():
         log.warning("loopthread is still alive!!!", stack_info=True)
         loop.stop()
     loopthread = threading.Thread(
-        target=loop.run_forever, name="nowplaying_eventloop", daemon=True
+        target=loop.run_forever, name="smc_evloop", daemon=True
     )
     asyncio.set_event_loop(loop)
     loopthread.start()
@@ -585,7 +620,6 @@ def script_load(_):
     log.debug("script_load()")
     thumbdir = tempfile.mkdtemp(prefix="smcinfo_thumbs_")
     startevthread()
-    runcoro(smcInitalizeAsync(), timeout=5)
 
 def script_unload():
     global thumbdir
