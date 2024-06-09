@@ -34,7 +34,7 @@ import time
 import traceback
 from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import CodeType
 from typing import Any, cast
 import platform
@@ -483,7 +483,7 @@ elif MEDIACTRL == 'MPRIS':
 
             'position': position,
             'end_time': timedelta(microseconds=meta['mpris:length']),
-            'last_updated_time': datetime.now(),
+            'last_updated_time': datetime.now(timezone.utc),
 
             'playback_status': await player.get_playback_status(), # type: ignore
             'repeat_mode': await player.get_loop_status(), # type: ignore
@@ -544,7 +544,7 @@ def update_text(data: dict[str, Any] | None):
         assert(data)
         if data['playback_status'] != 'Playing':
             return data['position']
-        return data['position']+(datetime.now()-data['last_updated_time'])*data['playback_rate']
+        return data['position']+(datetime.now(timezone.utc)-data['last_updated_time'])*data['playback_rate']
 
     namespace: dict[str, Any] = {
         "data": data,
