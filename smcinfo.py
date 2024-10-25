@@ -46,7 +46,7 @@ if MEDIACTRL == 'SMTC':
     import winrt.windows.foundation as _
     from winrt.windows.foundation import EventRegistrationToken
     from winrt.windows.foundation.collections import IVectorView as _
-    from winrt.windows.media.control import CurrentSessionChangedEventArgs
+    from winrt.windows.media.control import CurrentSessionChangedEventArgs, SessionsChangedEventArgs
     from winrt.windows.media.control import \
         GlobalSystemMediaTransportControlsSession as SMTCSession
     from winrt.windows.media.control import \
@@ -116,6 +116,8 @@ update_frequency = 1000 # ms
 display_expr: CodeType | None = None
 source_name = ""
 thumbsource_name = ""
+session_name = "<default>"
+session_name_list: list[str] = []
 
 media_props: dict[str, Any] = {}
 timeline_props: dict[str, Any] = {}
@@ -153,6 +155,18 @@ def script_properties():
         obs.OBS_COMBO_TYPE_EDITABLE,
         obs.OBS_COMBO_FORMAT_STRING,
     )
+    p3 = obs.obs_properties_add_list(
+        props,
+        "session_name",
+        "Session name",
+        obs.OBS_COMBO_TYPE_EDITABLE,
+        obs.OBS_COMBO_FORMAT_STRING
+    )
+
+    obs.obs_property_list_add_string(p3, '<default>', '<default>')
+
+    for name in session_name_list:
+        obs.obs_property_list_add_string(p3, name, name)
 
     sources = obs.obs_enum_sources()
     if sources:
@@ -177,6 +191,7 @@ def script_defaults(settings):
     obs.obs_data_set_default_string(settings, "source_name", "")
     obs.obs_data_set_default_string(settings, "thumbsource_name", "")
     obs.obs_data_set_default_string(settings, "log_level", "INFO")
+    obs.obs_data_set_default_string(settings, "session_name", "<default>")
 
 
 def script_save(settings):
@@ -192,6 +207,7 @@ def script_update(settings):
     global check_frequency
     global source_name
     global thumbsource_name
+    global session_name
     log.debug(f"script_update({settings!r})")
 
     loglevel = obs.obs_data_get_string(settings, "log_level")
@@ -209,6 +225,7 @@ def script_update(settings):
     )
     source_name = obs.obs_data_get_string(settings, "source_name")
     thumbsource_name = obs.obs_data_get_string(settings, "thumbsource_name")
+    session_name = obs.obs_data_get_string(settings, "session_name")
 
     toenabled = obs.obs_data_get_bool(settings, "enabled")
     if toenabled and not enabled:
@@ -231,7 +248,8 @@ lastData: dict[str, Any] | None = None
 
 if MEDIACTRL == 'SMTC':
     manager: SMTCManager | None = None
-    onSessionChangedToken: EventRegistrationToken | None = None
+    onCurrentSessionChangedToken: EventRegistrationToken | None = None
+    onSessionsChangedToken: EventRegistrationToken | None = None
     currentSession: SMTCSession | None = None
     onMediaPropChangedToken: EventRegistrationToken | None = None
     onTimelineChangedToken: EventRegistrationToken | None = None
@@ -240,28 +258,48 @@ if MEDIACTRL == 'SMTC':
 
     async def smtcDeinitalizeAsync():
         global manager
-        global onSessionChangedToken
+        global onCurrentSessionChangedToken
         await smtcSetSessionAsync(None)
-        if manager and onSessionChangedToken:
-            manager.remove_current_session_changed(onSessionChangedToken)
-            onSessionChangedToken = None
+        if manager and onCurrentSessionChangedToken:
+            manager.remove_current_session_changed(onCurrentSessionChangedToken)
+            onCurrentSessionChangedToken = None
         manager = None
 
 
     async def smtcInitalizeAsync():
         global manager
-        global onSessionChangedToken
+        global onCurrentSessionChangedToken
+        global onSessionsChangedToken
         await smtcDeinitalizeAsync()
         manager = await SMTCManager.request_async()
 
-        def onSessionChanged(
+        def onCurrentSessionChanged(
             sender: SMTCManager | None, event: CurrentSessionChangedEventArgs | None
         ):
             assert sender
             session = sender.get_current_session()
-            runcoro(smtcSetSessionAsync(session))
+            if session_name == '<default>':
+                runcoro(smtcSetSessionAsync(session))
 
-        onSessionChangedToken = manager.add_current_session_changed(onSessionChanged)
+        def onSessionsChanged(
+            sender: SMTCManager | None, event: SessionsChangedEventArgs | None
+        ):
+            global session_name_list
+            session_name_list = []
+            assert sender
+            preferred_session: SMTCSession | None = None
+            sessions = sender.get_sessions()
+            for session in sessions:
+                if session.source_app_user_model_id == session_name:
+                    preferred_session = session
+                session_name_list.append(session.source_app_user_model_id)
+            if preferred_session:
+                runcoro(smtcSetSessionAsync(preferred_session))
+
+
+        onCurrentSessionChangedToken = manager.add_current_session_changed(onCurrentSessionChanged)
+        onSessionsChangedToken = manager.add_sessions_changed(onSessionsChanged)
+        onSessionsChanged(manager, None)
         await smtcSetSessionAsync(manager.get_current_session())
 
 
@@ -424,6 +462,7 @@ elif MEDIACTRL == 'MPRIS':
     
     async def mprisDiscoverService():
         global playerobj
+        global session_name_list
         assert(bus)
 
         reply = await bus.call(
@@ -437,14 +476,20 @@ elif MEDIACTRL == 'MPRIS':
 
         services: list[str] = reply.body[0]
         players = [s for s in services if s.startswith('org.mpris.MediaPlayer2.')]
+
+        session_name_list = []
         if not players:
             log.debug('No MPRIS players found')
             playerobj = None
             return
-        if 'org.mpris.MediaPlayer2.playerctld' in players:
-            busname = 'org.mpris.MediaPlayer2.playerctld'
+        session_name_list = players[::]
+        if session_name == '<default>':
+            if 'org.mpris.MediaPlayer2.playerctld' in players:
+                busname = 'org.mpris.MediaPlayer2.playerctld'
+            else:
+                busname = players[0]
         else:
-            busname = players[0]
+            busname = session_name
         log.info(f'Using MPRIS bus {busname}')
         
         introspect = await bus.introspect(busname, '/org/mpris/MediaPlayer2')
